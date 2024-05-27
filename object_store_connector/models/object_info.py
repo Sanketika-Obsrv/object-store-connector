@@ -15,6 +15,9 @@ class Tag:
     def to_aws(self):
         return {"Key": self.key, "Value": self.value}
 
+    def to_gcs(self):
+        return {"Key": self.key, "Value": self.value}
+
 
 @dataclass
 class ObjectInfo:
