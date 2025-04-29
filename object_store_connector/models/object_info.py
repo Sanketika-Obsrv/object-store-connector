@@ -24,6 +24,7 @@ class ObjectInfo:
     id: str = field(default_factory=lambda: str(uuid4()))
     connector_id: str = None
     dataset_id: str = None
+    key: str = None
     location: str = None
     format: str = None
     file_size_kb: int = 0
@@ -41,6 +42,7 @@ class ObjectInfo:
             "connector_id": self.connector_id,
             "dataset_id": self.dataset_id,
             "location": self.location,
+            "key": self.key,
             "format": self.format,
             "file_size_kb": self.file_size_kb,
             "in_time": self.in_time,

@@ -22,7 +22,7 @@ class AzureBlobStorage(BlobProvider):
         self.account_key = connector_config["source_credentials_account_key"]
         self.container_name = connector_config["source_container_name"]
         self.blob_endpoint = connector_config.get("source_blob_endpoint", None)
-        self.prefix = connector_config.get("source_prefix", "/")
+        self.prefix = connector_config.get("source_prefix", "")
 
         if self.blob_endpoint == "core.windows.net":
             self.connection_string = f"DefaultEndpointsProtocol=https;AccountName={self.account_name};AccountKey={self.account_key};EndpointSuffix={self.blob_endpoint}"
@@ -41,10 +41,12 @@ class AzureBlobStorage(BlobProvider):
         return conf
 
     def fetch_objects(
-        self, ctx: ConnectorContext, metrics_collector: MetricsCollector
+        self, ctx: ConnectorContext, metrics_collector: MetricsCollector, prefix: str = None
     ) -> List[ObjectInfo]:
+        if prefix is None:
+            prefix = self.prefix
 
-        objects = self._list_blobs(ctx, metrics_collector=metrics_collector)
+        objects = self._list_blobs(ctx=ctx, metrics_collector=metrics_collector, prefix=prefix)
 
         objects_info = []
         if objects is None:
@@ -58,6 +60,7 @@ class AzureBlobStorage(BlobProvider):
 
             object_info = ObjectInfo(
                 location=blob_location,
+                key=obj["name"],
                 format=obj["name"].split(".")[-1],
                 file_size_kb=obj["size"] // 1024,
                 file_hash=obj["etag"].strip('"'),
@@ -112,7 +115,9 @@ class AzureBlobStorage(BlobProvider):
         metrics_collector.collect({"num_api_calls": api_calls, "num_errors": errors}, addn_labels=labels)
         return df
 
-    def _list_blobs(self, ctx: ConnectorContext, metrics_collector: MetricsCollector) -> list:
+    def _list_blobs(
+        self, ctx: ConnectorContext, metrics_collector: MetricsCollector, prefix: str
+    ) -> list:
         summaries = []
         continuation_token = None
         file_formats = {
@@ -126,15 +131,15 @@ class AzureBlobStorage(BlobProvider):
         api_calls, errors = 0, 0
         error_code = ""
 
-        # container_client = ContainerClient.from_connection_string(conn_str=self.connection_string, container_name=container_name)
         while True:
             try:
                 if continuation_token:
                     blobs = self.container_client.list_blobs(
+                        name_starts_with=prefix,
                         results_per_page=1000
                     ).by_page(continuation_token=continuation_token)
                 else:
-                    blobs = self.container_client.list_blobs()
+                    blobs = self.container_client.list_blobs(name_starts_with=prefix)
                 api_calls += 1
 
                 for blob in blobs:
@@ -206,8 +211,7 @@ class AzureBlobStorage(BlobProvider):
         is_tag_updated = False
         try:
             new_dict = {tag['key']: tag['value'] for tag in tags}
-            location = object.get("location")
-            obj = location.split("/")[-1]
+            obj = object.get("key")
 
             blob_client = BlobClient.from_connection_string(
                 conn_str=self.connection_string, container_name=self.container_name, blob_name=obj

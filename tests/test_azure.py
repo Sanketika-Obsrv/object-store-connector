@@ -40,7 +40,7 @@ def setup(request):
         "source_credentials_account_key": azurite_account_key,
         "source_blob_endpoint": azurite_endpoint,
         "source_connection_string": azurite_conn_string,
-        "source_prefix": "/",
+        "source_prefix": "",
         "source_data_format": "json"
     })
     insert_connector(connector_config, connector_instance_id)
@@ -77,7 +77,7 @@ def init_azurite(connector_config):
         print(f"[ERROR] Error while creating AZURITE container: {e}")
 
     object_name = "data.json"
-    file_path = "./stubs/events/chunk-4997.json"
+    file_path = "./tests/test_data/chunk-1.json"
     content_settings = ContentSettings(content_type="application/json")
 
     # Upload Objects

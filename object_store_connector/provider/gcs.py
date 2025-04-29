@@ -93,7 +93,7 @@ class GCS(BlobProvider):
         api_calls, errors = 0, 0
         error_code = ""
         is_tag_updated = False
-        object_path = object.get('location')
+        # object_path = object.get('location')
 
         initial_tags = object.get('tags')
         new_tags = list(
@@ -104,9 +104,9 @@ class GCS(BlobProvider):
         ]
 
         try:
-            relative_path = object_path.lstrip("gs://").split("/", 1)[-1]
+            # relative_path = object_path.lstrip("gs://").split("/", 1)[-1]
             bucket = self.gcs_client.bucket(self.bucket)
-            blob = bucket.blob(relative_path)
+            blob = bucket.blob(object.get("key"))
             blob.metadata = {tag["Key"]: tag["Value"] for tag in updated_tags}
             blob.patch()
             api_calls += 1
@@ -131,15 +131,18 @@ class GCS(BlobProvider):
         return is_tag_updated
 
     def fetch_objects(
-        self, ctx: ConnectorContext, metrics_collector: MetricsCollector
+        self, ctx: ConnectorContext, metrics_collector: MetricsCollector, prefix: str = None
     ) -> List[ObjectInfo]:
-        objects = self._list_objects(ctx, metrics_collector=metrics_collector)
+        if prefix is None:
+            prefix = self.prefix
+        objects = self._list_objects(ctx, metrics_collector=metrics_collector, prefix=prefix)
         objects_info = []
         if not objects:
             return []
         for obj in objects:
             object_info = ObjectInfo(
                 id=str(uuid4()),
+                key=obj.name,
                 location=f"{self.obj_prefix}/{obj.name}",
                 format=obj.name.split(".")[-1],
                 file_size_kb=obj.size // 1024,
@@ -194,9 +197,10 @@ class GCS(BlobProvider):
         metrics_collector.collect({"num_api_calls": api_calls, "num_errors": errors}, addn_labels=labels)
         return df
 
-    def _list_objects(self, ctx: ConnectorContext, metrics_collector: MetricsCollector) -> list:
+    def _list_objects(
+        self, ctx: ConnectorContext, metrics_collector: MetricsCollector, prefix: str
+    ) -> list:
         bucket_name = self.bucket
-        prefix = self.prefix
         summaries = []
         page_token = None
         file_formats = {
