@@ -28,16 +28,15 @@ jobs:
 
     - name: Prepare Distribution Directory
       run: |
-        FIXED_FOLDER="object_store_connector-0.1.0"
-        mkdir -p "${FIXED_FOLDER}"
-        cp -r object_store_connector scripts "${FIXED_FOLDER}/"
-        cp metadata.json ui-config.json *.svg README.md "${FIXED_FOLDER}/" || true
-        echo "Version: 0.1.0" > "${FIXED_FOLDER}/VERSION.txt"
-
+        VERSION="1.0.0"
+        FOLDER="object_store_connector-${VERSION}"
+        mkdir -p "${FOLDER}"
+        cp -r object_store_connector scripts "${FOLDER}/"
+        cp metadata.json ui-config.json *.svg README.md "${FOLDER}/" || true
+        echo "Version: ${VERSION}" > "${FOLDER}/VERSION.txt"
     - name: Create Tarball
       run: |
-        tar -czvf object-store-connector.tar.gz object_store_connector-0.1.0/
-
+        tar -czvf object-store-connector.tar.gz object_store_connector-1.0.0/
     - name: Upload Release Asset
       uses: softprops/action-gh-release@v2
       with:

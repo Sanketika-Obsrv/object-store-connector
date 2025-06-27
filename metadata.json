@@ -3,7 +3,7 @@
     "metadata": {
         "id": "object_store_connector",
         "name": "Object Store Connector",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "tenant": "multiple",
         "type": "source",
         "category": "batch",
