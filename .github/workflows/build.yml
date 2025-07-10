@@ -31,15 +31,19 @@ jobs:
 
     - name: Prepare Distribution Directory
       run: |
-        FIXED_FOLDER="object_store_connector-1.0.0"
+        VERSION="${GITHUB_REF#refs/tags/}"
+        FIXED_FOLDER="object_store_connector-${VERSION}"
         mkdir -p "${FIXED_FOLDER}"
         cp -r object_store_connector scripts "${FIXED_FOLDER}/"
         cp metadata.json ui-config.json *.svg README.md "${FIXED_FOLDER}/" || true
-        echo "Version: 1.0.0" > "${FIXED_FOLDER}/VERSION.txt"
+        echo "Version: ${VERSION}" > "${FIXED_FOLDER}/VERSION.txt"
+
 
     - name: Create Tarball
       run: |
-        tar -czvf object-store-connector.tar.gz object_store_connector-1.0.0/
+        VERSION="${GITHUB_REF#refs/tags/}"
+        tar -czvf "object-store-connector.tar.gz" "object_store_connector-${VERSION}/"
+
 
     - name: Upload Release Asset
       uses: softprops/action-gh-release@v2
