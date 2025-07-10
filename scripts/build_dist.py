@@ -12,7 +12,7 @@ def main():
     subprocess.Popen("""poetry export --without-hashes --format=requirements.txt | awk '{split($0,a,"; "); print a[1]}' > requirements.txt""", shell=True).wait()
     subprocess.Popen("mvn dependency:copy-dependencies -DrepoUrl=http://repo1.maven.org/maven2/ -DexcludeTrans -DoutputDirectory=libs", shell=True).wait()
     subprocess.Popen("poetry build -f sdist", shell=True).wait()
-    subprocess.Popen("rm -rf requirements.txt libs", shell=True).wait()
+    subprocess.Popen("rm -rf requirements.txt", shell=True).wait()
 
 if __name__ == '__main__':
     main()

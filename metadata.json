@@ -7,7 +7,7 @@
         "tenant": "multiple",
         "type": "source",
         "category": "batch",
-        "description": "The Object Store Connector is used to move data from any Object Store to the Obsrv",
+        "description": "The Object Store Connector is used to move data from any Object Store to Obsrv",
         "technology": "python",
         "runtime": "spark",
         "licence": "MIT",
@@ -19,8 +19,20 @@
         {
             "id": "aws-s3-connector",
             "name": "AWS S3",
-            "description": "The AWS S3 Connector is used to move data from any S3 Bucket to the Obsrv",
+            "description": "The AWS S3 Connector is used to move data from any S3 Bucket to Obsrv",
             "icon": "s3.svg"
+        },
+        {
+            "id": "azure-connector",
+            "name": "Azure",
+            "description": "The Azure Connector is used to move data from any Azure Container to Obsrv",
+            "icon": "azure.svg"
+        },
+        {
+            "id": "gcs-connector",
+            "name": "GCS",
+            "description": "The GCS Connector is used to move data from any GCS Bucket to Obsrv",
+            "icon": "gcs.svg"
         }
     ]
 }

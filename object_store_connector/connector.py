@@ -1,3 +1,4 @@
+import re
 import datetime
 import json
 import time
@@ -11,13 +12,40 @@ from obsrv.utils import LoggerController
 from pyspark.conf import SparkConf
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import lit
+from dateutil.relativedelta import relativedelta
 
 from models.object_info import ObjectInfo
+from provider.azure import AzureBlobStorage
+from provider.gcs import GCS
 from provider.s3 import S3
+
 
 logger = LoggerController(__name__)
 
 MAX_RETRY_COUNT = 10
+
+schedule_dict = {
+    "Hourly": {
+        "last_processed_partition": "minute=0, second=0, microsecond=0",
+        "interval": "hours=1"
+    },
+    "Daily": {
+        "last_processed_partition": "hour=0, minute=0, second=0, microsecond=0",
+        "interval": "days=1"
+    },
+    "Weekly": {
+        "last_processed_partition": "days=current_time.weekday(), hour=0, minute=0, second=0, microsecond=0",
+        "interval": "days=7"
+    },
+    "Monthly": {
+        "last_processed_partition": "day=1, hour=0, minute=0, second=0, microsecond=0",
+        "interval": "months=1"
+    },
+    "Yearly": {
+        "last_processed_partition": "month=1, day=1, hour=0, minute=0, second=0, microsecond=0",
+        "interval": "years=1"
+    }
+}
 
 
 class ObjectStoreConnector(ISourceConnector):
@@ -27,6 +55,12 @@ class ObjectStoreConnector(ISourceConnector):
         self.dedupe_tag = None
         self.success_state = StatusCode.SUCCESS.value
         self.error_state = StatusCode.FAILED.value
+        self.prefix_template = None
+        self.prefix_regex = None
+        self.last_processed_time_partition = None
+        self.schedule_config = None
+        self.schedule = None
+        self.partition_type = None
 
     def process(
         self,
@@ -42,7 +76,34 @@ class ObjectStoreConnector(ISourceConnector):
             else MAX_RETRY_COUNT
         )
         self._get_provider(connector_config)
-        self._get_objects_to_process(ctx, metrics_collector)
+        logger.info("Processing connector with config: {}")
+        self.partition_type = connector_config.get("source_partition_type", None)
+        if self.partition_type == "time":
+            self.schedule = operations_config.get("schedule", None)
+            if self.schedule is None:
+                raise ObsrvException(
+                    ErrorData(
+                        "INVALID_OPERATIONS_CONFIG", f"schedule must be provided in operations config when source_partition_type is time"
+                    )
+                )
+            self.schedule_config = schedule_dict.get(self.schedule, None)
+            if self.schedule_config is None:
+                raise ObsrvException(
+                    ErrorData(
+                        "INVALID_OPERATIONS_CONFIG", f"operations config schedule must be one of {schedule_dict.keys()}"
+                    )
+                )
+
+            self.prefix_template = connector_config.get("source_prefix", None)
+            if self.prefix_template is None:
+                raise ObsrvException(
+                    ErrorData(
+                        "INVALID_CONNECTOR_CONFIG", "source_prefix must be provided in connector config when source_partition_type is time"
+                    )
+                )
+            self.prefix_regex = self.prefix_template.replace('%d', '(\d{1,2})').replace('%m', '(\d{1,2})').replace('%Y', '(\d{4})').replace('%H', '(\d{2})')
+
+        self._get_objects_to_process(ctx, connector_config, metrics_collector)
         for res in self._process_objects(sc, ctx, connector_config, metrics_collector):
             yield res
 
@@ -60,6 +121,10 @@ class ObjectStoreConnector(ISourceConnector):
     def _get_provider(self, connector_config: Dict[Any, Any]):
         if connector_config["source_type"] == "s3":
             self.provider = S3(connector_config)
+        elif connector_config["source_type"] == "azure_blob":
+            self.provider = AzureBlobStorage(connector_config)
+        elif connector_config["source_type"] == "gcs":
+            self.provider = GCS(connector_config)
         else:
             ObsrvException(
                 ErrorData(
@@ -71,7 +136,7 @@ class ObjectStoreConnector(ISourceConnector):
             )
 
     def _get_objects_to_process(
-        self, ctx: ConnectorContext, metrics_collector: MetricsCollector
+        self, ctx: ConnectorContext, connector_config: Dict[Any, Any], metrics_collector: MetricsCollector
     ) -> None:
         objects = ctx.state.get_state("to_process", list())
         if ctx.building_block is not None and ctx.env is not None:
@@ -85,7 +150,11 @@ class ObjectStoreConnector(ISourceConnector):
 
         if not len(objects):
             num_files_discovered = ctx.stats.get_stat("num_files_discovered", 0)
-            objects = self.provider.fetch_objects(ctx, metrics_collector)
+            objects = list()
+            if self.partition_type == "time":
+                objects = self._get_partitioned_objects_to_process(ctx, connector_config, metrics_collector)
+            else:
+                objects = self.provider.fetch_objects(ctx, metrics_collector=metrics_collector)
             objects = self._exclude_processed_objects(ctx, objects)
             metrics_collector.collect("new_objects_discovered", len(objects))
             ctx.state.put_state("to_process", objects)
@@ -95,6 +164,28 @@ class ObjectStoreConnector(ISourceConnector):
             ctx.stats.save_stats()
 
         self.objects = objects
+
+    def _get_partitioned_objects_to_process(self, ctx: ConnectorContext, connector_config: Dict[Any, Any], metrics_collector: MetricsCollector) -> None:
+        objects = list()
+        self.last_processed_time_partition = ctx.state.get_state("last_processed_time_partition", None)
+
+        if self.last_processed_time_partition is None:
+            objects = self.provider.fetch_objects(ctx, metrics_collector=metrics_collector, prefix="")
+            objects = self._filter_object_prefix(objects)
+            self._set_last_processed_partition()
+            ctx.state.put_state("last_processed_time_partition", self.last_processed_time_partition)
+        else:
+            partition_date_to_process = datetime.datetime.fromisoformat(self.last_processed_time_partition)
+            while True:
+                if datetime.datetime.now() < partition_date_to_process:
+                    break
+                prefix = partition_date_to_process.strftime(self.prefix_template)
+                fetched_objects = self.provider.fetch_objects(ctx=ctx, metrics_collector=metrics_collector, prefix=prefix)
+                objects += self._exclude_processed_objects(ctx, fetched_objects)
+                ctx.state.put_state("last_processed_time_partition", partition_date_to_process)
+                partition_date_to_process = self._get_next_partition_date(partition_date_to_process)
+
+        return objects
 
     def _process_objects(
         self,
@@ -136,7 +227,7 @@ class ObjectStoreConnector(ISourceConnector):
                     metrics_collector=metrics_collector,
                 ):
                     break
-                ctx.state.put_state("to_process", self.objects[i + 1 :])
+                ctx.state.put_state("to_process", self.objects[i + 1:])
                 ctx.state.save_state()
                 num_files_processed += 1
                 ctx.stats.put_stat("num_files_processed", num_files_processed)
@@ -168,3 +259,35 @@ class ObjectStoreConnector(ISourceConnector):
                 to_be_processed.append(obj)
 
         return to_be_processed
+
+    def _set_last_processed_partition(self):
+        current_time = datetime.datetime.now()
+        local_vars = {}
+        exec(f"kwargs = dict({self.schedule_config['last_processed_partition']})", {"current_time": current_time}, local_vars)
+        self.last_processed_time_partition = current_time - relativedelta(**local_vars["kwargs"])
+
+    def _filter_object_prefix(self, objects: list[ObjectInfo]) -> list[ObjectInfo]:
+        to_be_processed = []
+        for obj in objects:
+            key = obj.get("key")
+            match = re.search(pattern=self.prefix_regex, string=key)
+            if not match:
+                continue
+            prefix = match.group(0)
+            try:
+                object_timestamp = datetime.datetime.strptime(prefix, self.prefix_template)
+            except Exception as e:
+                print(f"[ERROR] Error stripping time from object '{key}'. Error: {e}")
+                continue
+
+            # exclude object if timestamp is in future
+            if datetime.datetime.now() < object_timestamp:
+                continue
+            to_be_processed.append(obj)
+
+        return to_be_processed
+
+    def _get_next_partition_date(self, date: datetime.datetime) -> datetime.datetime:
+        local_vars = {}
+        exec(f"kwargs = dict({self.schedule_config['interval']})", {}, local_vars)
+        return date + relativedelta(**local_vars["kwargs"])

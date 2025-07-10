@@ -18,3 +18,5 @@ __pycache__
 /poetry.toml
 
 /libs/*
+/stubs
+.flake8

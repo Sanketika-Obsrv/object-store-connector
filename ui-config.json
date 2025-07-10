@@ -106,5 +106,134 @@
       "source_type", "source_data_format", "source_bucket", "source_credentials_region",
       "source_credentials_secret_key", "source_credentials_access_key"
     ]
+  },
+  "gcs-connector": {
+    "title": "Google Cloud Storage Connector Setup Instructions",
+    "description": "Configure Google Cloud Storage Connector",
+    "helptext": "Provide GCS credentials and configuration to connect your GCS bucket to Obsrv.",
+    "type": "object",
+    "properties": {
+      "source_bucket": {
+        "title": "Bucket Name",
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 63,
+        "pattern": "^[a-z0-9._-]{3,63}$",
+        "description": "Enter your GCS bucket name (e.g., my-gcs-bucket)",
+        "helptext": "<p><strong>Bucket Name:</strong> Provide the name of your Google Cloud Storage bucket.</p><ul><li>Must be globally unique.</li><li>3-63 characters using lowercase letters, numbers, dots, underscores, and hyphens.</li></ul>",
+        "uiIndex": 1
+      },
+      "source_prefix": {
+        "title": "Object Prefix",
+        "type": "string",
+        "default": "",
+        "description": "Specify folder path/prefix (e.g., data-folder/)",
+        "helptext": "<p><strong>Prefix:</strong> Path inside the GCS bucket to select specific files or folders.</p><ul><li>Use standard GCS object naming with '/' to simulate folder structure.</li><li>Leave blank to include all files.</li></ul>",
+        "uiIndex": 2
+      },
+      "source_credentials": {
+        "title": "Service Account JSON",
+        "type": "string",
+        "format": "password",
+        "description": "Paste the JSON key content for your GCS service account",
+        "helptext": "<p><strong>Service Account Key:</strong> Paste the entire JSON credential for your GCS service account.</p><ul><li>Ensure the account has read access to the bucket.</li><li>Best practice: Use a dedicated service account with least privileges.</li><li>Refer to <a href=\"https://cloud.google.com/iam/docs/creating-managing-service-account-keys\" target=\"_blank\">GCS documentation</a> for details.</li></ul>",
+        "uiIndex": 3
+      },
+      "source_data_format": {
+        "title": "Data Format",
+        "type": "string",
+        "enum": ["json", "jsonl", "csv", "parquet"],
+        "default": "json",
+        "description": "Select data format",
+        "helptext": "<p><strong>Data Format:</strong> Format of the files in your GCS bucket.</p><ul><li><strong>JSON:</strong> One JSON object per file.</li><li><strong>JSONL:</strong> One JSON object per line.</li><li><strong>CSV:</strong> Tabular data in CSV format.</li><li><strong>Parquet:</strong> Optimized columnar binary format.</li></ul>",
+        "uiIndex": 4
+      },
+      "source_type": {
+        "title": "Storage type",
+        "type": "string",
+        "default": "gcs",
+        "format": "hidden",
+        "uiIndex": 5
+      }
+    },
+    "required": [
+      "source_type", "source_data_format", "source_bucket",
+      "source_credentials"
+    ]
+  },
+  "azure-connector": {
+    "title": "Azure Blob Storage Connector Setup Instructions",
+    "description": "Configure Azure Blob Storage Connector",
+    "helptext": "Follow the instructions to fill in the required fields for connecting Azure Blob Storage.",
+    "type": "object",
+    "properties": {
+      "source_container_name": {
+        "title": "Container Name",
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 63,
+        "pattern": "^[a-z0-9](?!.*--)[a-z0-9-]{1,61}[a-z0-9]$",
+        "description": "Enter the Azure Blob container name (e.g., data-container)",
+        "helptext": "<p><strong>Container Name:</strong> Enter the name of the container that holds your data blobs.</p><ul><li>Lowercase letters, numbers, and hyphens allowed.</li><li>Cannot start or end with a hyphen or have consecutive hyphens.</li><li>Example: <em>data-container</em></li></ul>",
+        "uiIndex": 1
+      },
+      "source_prefix": {
+        "title": "Blob Prefix",
+        "type": "string",
+        "default": "",
+        "description": "Enter folder prefix inside the container (e.g., path/to/folder/)",
+        "helptext": "<p><strong>Prefix:</strong> Specify the folder-like prefix within the container to filter blobs.</p><ul><li>Use forward slashes to indicate hierarchy.</li><li>Leave empty to fetch all blobs in the container.</li></ul>",
+        "uiIndex": 2
+      },
+      "source_credentials_account_name": {
+        "title": "Account Name",
+        "type": "string",
+        "pattern": "^[a-z0-9]{3,24}$",
+        "minLength": 3,
+        "maxLength": 24,
+        "description": "Azure Storage account name",
+        "helptext": "<p><strong>Account Name:</strong> This is the name of your Azure Storage account. It is used to identify your storage service in Azure.</p>",
+        "uiIndex": 3
+      },
+      "source_credentials_account_key": {
+        "title": "Account Key",
+        "type": "string",
+        "pattern": "^[>'#\"=]?[A-Za-z0-9+\/]{86}==$",
+        "minLength": 88,
+        "maxLength": 89,
+        "format": "password",
+        "description": "Azure Storage account access key",
+        "helptext": "<p><strong>Account Key:</strong> This is the secret key for accessing your Azure Storage account.</p><ul><li>Store securely and rotate regularly.</li><li>Consider using Azure Key Vault for secure management.</li></ul>",
+        "uiIndex": 4
+      },
+      "source_data_format": {
+        "title": "Data Format",
+        "type": "string",
+        "enum": ["json", "jsonl", "csv", "parquet"],
+        "default": "json",
+        "description": "Select data format",
+        "helptext": "<p><strong>Data Format:</strong> Select the format of the data stored in your Azure Container. Supported formats:</p><ul><li><strong>JSON:</strong> Standard JSON format, typically one object per file.<code>{<br/>&nbsp;&nbsp;\"id\": 1,<br/>&nbsp;&nbsp;\"name\": \"Alice\",<br/>&nbsp;&nbsp;\"email\": \"abc@xyz.com\"<br/>}</code></li><li><strong>JSONL:</strong> JSON Lines format with one JSON object per line, suitable for large datasets.<code>{\"id\": 1, \"name\": \"Alice\", \"email\": \"alice@example.com\"}<br/>{\"id\": 2, \"name\": \"Bob\", \"email\": \"bob@example.com\"}</code></li><li><strong>Parquet:</strong> A binary, columnar format optimized for efficient storage. Not human-readable.</li><li><strong>CSV:</strong> Comma-separated values format for tabular data.<code>id,name,email<br/>1,Alice,alice@example.com<br/>2,Bob,bob@example.com</code></li></ul><p>Select the format that matches the data files in your Azure Container.</p>",
+        "uiIndex": 5
+      },
+      "source_blob_endpoint": {
+        "type": "string",
+        "title": "Blob endpoint",
+        "default": "core.windows.net",
+        "format": "hidden",
+        "uiIndex": 6
+      },
+      "source_type": {
+        "type": "string",
+        "title": "Storage type",
+        "default": "azure",
+        "format": "hidden",
+        "uiIndex": 7
+      }
+    },
+    "required": [
+      "source_container_name", "source_data_format",
+      "source_credentials_account_name", "source_credentials_account_key",
+      "source_type", "source_blob_endpoint"
+    ]
   }
 }

@@ -18,6 +18,12 @@ class S3(BlobProvider):
     def __init__(self, connector_config) -> None:
         super().__init__()
         self.connector_config = connector_config
+        self.endpoint_url = "s3.amazonaws.com"
+        self.is_s3_client = True
+        endpoint = connector_config.get("source_credentials_endpoint", None)
+        if endpoint is not None and len(endpoint.strip()) > 0:
+            self.endpoint_url = f"{endpoint.strip()}"
+            self.is_s3_client = False
         self.bucket = connector_config["source_bucket"]
         # self.prefix = connector_config.get('prefix', '/') # TODO: Implement partitioning support
         self.prefix = (
@@ -30,7 +36,7 @@ class S3(BlobProvider):
 
     def get_spark_config(self, connector_config) -> SparkConf:
         conf = get_base_conf()
-        conf.setAppName("ObsrvObjectStoreConnector")
+        conf.setAppName("AWSObjectStoreConnector")
         conf.set("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.4")
         conf.set(
             "spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem"
@@ -53,7 +59,8 @@ class S3(BlobProvider):
         conf.set(
             "spark.hadoop.fs.s3a.retry.interval", "500ms"
         )  # Set retry interval for S3 operations
-        conf.set("spark.hadoop.fs.s3a.endpoint", "s3.amazonaws.com")  # Set S3 endpoint
+        conf.set("spark.hadoop.fs.s3a.endpoint", self.endpoint_url)
+        conf.set("spark.hadoop.fs.s3a.path.style.access", "true")
         conf.set(
             "spark.hadoop.fs.s3a.multiobjectdelete.enable", "false"
         )  # Disable multiobject delete
@@ -69,7 +76,7 @@ class S3(BlobProvider):
             "spark.hadoop.fs.s3a.secret.key",
             connector_config["source_credentials_secret_key"],
         )  # AWS secret key
-        conf.set("com.amazonaws.services.s3.enableV4", "true")  # Enable V4 signature
+        # conf.set("com.amazonaws.services.s3.enableV4", "true")  # Enable V4 signature
 
         return conf
 
@@ -111,8 +118,8 @@ class S3(BlobProvider):
         api_calls, errors = 0, 0
         error_code = ""
         is_tag_updated = False
-        stripped_file_path = object.get("location").lstrip("s3a://")
-        bucket_name, object_key = stripped_file_path.split("/", 1)
+        bucket_name = self.bucket
+        object_key = object.get("key")
 
         initial_tags = object.get("tags")
         new_tags = list(
@@ -126,6 +133,7 @@ class S3(BlobProvider):
             self.s3_client.put_object_tagging(
                 Bucket=bucket_name, Key=object_key, Tagging={"TagSet": updated_tags}
             )
+            api_calls += 1
             is_tag_updated = True
         except (BotoCoreError, ClientError) as exception:
             errors += 1
@@ -147,13 +155,15 @@ class S3(BlobProvider):
         return is_tag_updated
 
     def fetch_objects(
-        self, ctx: ConnectorContext, metrics_collector: MetricsCollector
+        self, ctx: ConnectorContext, metrics_collector: MetricsCollector, prefix: str = None
     ) -> List[ObjectInfo]:
-        objects = self._list_objects(ctx, metrics_collector=metrics_collector)
+        prefix = self.prefix if prefix is None else prefix
+        objects = self._list_objects(ctx, metrics_collector=metrics_collector, prefix=prefix)
         objects_info = []
         for obj in objects:
             object_info = ObjectInfo(
                 location=f"{self.obj_prefix}{obj['Key']}",
+                key=obj["Key"],
                 format=obj["Key"].split(".")[-1],
                 file_size_kb=obj["Size"] // 1024,
                 file_hash=obj["ETag"].strip('"'),
@@ -215,11 +225,14 @@ class S3(BlobProvider):
             ],
             region_name=self.connector_config["source_credentials_region"],
         )
-        return session.client("s3")
+        if self.is_s3_client is True:
+            return session.client("s3")
+        return session.client("s3", endpoint_url=self.endpoint_url)
 
-    def _list_objects(self, ctx: ConnectorContext, metrics_collector) -> list:
-        bucket_name = self.connector_config["source_bucket"]
-        prefix = self.prefix
+    def _list_objects(
+        self, ctx: ConnectorContext, metrics_collector: MetricsCollector, prefix: str
+    ) -> list:
+        bucket_name = self.bucket
         summaries = []
         continuation_token = None
         file_formats = {
@@ -269,7 +282,8 @@ class S3(BlobProvider):
             {"key": "request_method", "value": "GET"},
             {"key": "method_name", "value": "ListObjectsV2"},
             {"key": "object_path", "value": ""},
-            {"key": "error_code", "value": error_code}
+            {"key": "error_code", "value": error_code},
+            {"key": "prefix", "value": prefix}
         ]
         metrics_collector.collect({"num_api_calls": api_calls, "num_errors": errors}, addn_labels=labels)
         return summaries
