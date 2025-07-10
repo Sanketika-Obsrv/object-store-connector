@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "object-store-connector"
 version = "1.0.0"
-description = ""
+description = "Object Store Connector"
 authors = ["Ravi Mula <ravismula@users.noreply.github.com>"]
 readme = "README.md"
 
